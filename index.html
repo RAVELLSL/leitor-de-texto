@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Leitor de Texto Avançado</title>
+    <title>Leitor de Texto</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
@@ -139,7 +139,7 @@
             </label>
         </div>
         <header>
-            <h1>Leitor de Texto Avançado</h1>
+            <h1>Leitor de Texto</h1>
         </header>
         <main>
             <div class="textarea-header">
@@ -236,7 +236,7 @@
         const botaoParar = qs('#botaoParar');
         const botaoReset = qs('#botaoReset');
         const botaoColar = qs('#botaoColar');
-        const botaoLimpar = qs('#botaoLimpar'); // NOVO ELEMENTO
+        const botaoLimpar = qs('#botaoLimpar');
         const velocidadeInput = qs('#velocidade');
         const velocidadeValor = qs('#velocidadeValor');
         const tomInput = qs('#tom');
@@ -291,7 +291,15 @@
         };
 
         const speakNextChunk = () => {
-            if (currentUtteranceIndex >= speechQueue.length || !synth.speaking) return;
+            // CORREÇÃO APLICADA AQUI: Removida a verificação '|| !synth.speaking'
+            if (currentUtteranceIndex >= speechQueue.length) {
+                // Se a fila terminou, mas a API ainda está 'speaking',
+                // pode ser um delay. Chamamos finalizarFala() para garantir o reset da UI.
+                if(!synth.speaking) {
+                   finalizarFala();
+                }
+                return;
+            }
 
             const chunk = speechQueue[currentUtteranceIndex];
             const utterance = new SpeechSynthesisUtterance(chunk);
@@ -303,20 +311,18 @@
             utterance.pitch = parseFloat(tomInput.value);
 
             utterance.onboundary = (event) => {
-                const totalChars = textoInput.value.length;
-                const progress = ((charOffset + event.charIndex) / totalChars) * 100;
-                timelineProgress.style.width = `${progress}%`;
-                timelinePercentage.textContent = `${Math.round(progress)}%`;
+                if (textoInput.value.length > 0) {
+                    const totalChars = textoInput.value.length;
+                    const progress = Math.min(((charOffset + event.charIndex) / totalChars) * 100, 100);
+                    timelineProgress.style.width = `${progress}%`;
+                    timelinePercentage.textContent = `${Math.round(progress)}%`;
+                }
             };
 
             utterance.onend = () => {
                 charOffset += chunk.length + 1; // +1 para o espaço
                 currentUtteranceIndex++;
-                if (currentUtteranceIndex < speechQueue.length) {
-                    speakNextChunk();
-                } else {
-                    finalizarFala();
-                }
+                speakNextChunk(); // Chama o próximo da fila
             };
 
             synth.speak(utterance);
@@ -344,26 +350,34 @@
         const iniciarNovaFala = () => {
             if (textoInput.value.trim() === '' || vozes.length === 0) return;
             
-            synth.cancel(); 
-            speechQueue = chunkifyText(textoInput.value);
-            currentUtteranceIndex = 0;
-            charOffset = 0;
+            // Garante que o estado anterior seja limpo antes de começar
+            if (synth.speaking) {
+                synth.cancel();
+            }
             
-            progressSection.style.display = 'flex';
-            timelineProgress.style.width = '0%';
-            timelinePercentage.textContent = '0%';
-            
-            speakNextChunk();
-            atualizarBotaoFalar();
+            setTimeout(() => {
+                speechQueue = chunkifyText(textoInput.value);
+                currentUtteranceIndex = 0;
+                charOffset = 0;
+                
+                progressSection.style.display = 'flex';
+                timelineProgress.style.width = '0%';
+                timelinePercentage.textContent = '0%';
+                
+                speakNextChunk();
+                atualizarBotaoFalar();
+            }, 100); // Pequeno delay para garantir que o 'cancel' seja processado
         };
 
         const finalizarFala = () => {
             setTimeout(() => {
                 timelineProgress.style.width = '100%';
                 timelinePercentage.textContent = '100%';
-                setTimeout(() => { progressSection.style.display = 'none'; }, 500);
+                setTimeout(() => { 
+                    progressSection.style.display = 'none';
+                    atualizarBotaoFalar();
+                }, 500);
             }, 100);
-            atualizarBotaoFalar();
         };
 
         const parar = () => {
@@ -392,10 +406,10 @@
         
         // --- Event Listeners ---
         botaoFalar.addEventListener('click', () => {
-            if (synth.speaking && !synth.paused) {
-                synth.pause();
-            } else if (synth.paused) {
+            if (synth.paused) {
                 synth.resume();
+            } else if (synth.speaking) {
+                synth.pause();
             } else {
                 iniciarNovaFala();
             }
@@ -421,7 +435,6 @@
             }
         });
         
-        // NOVO EVENTO ADICIONADO AQUI
         botaoLimpar.addEventListener('click', () => {
             textoInput.value = '';
             parar();
